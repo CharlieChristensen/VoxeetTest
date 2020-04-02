@@ -8,7 +8,7 @@ class MainApplication: Application() {
 
     override fun onCreate() {
         super.onCreate()
-        VoxeetSDK.initialize("", "")
+        VoxeetSDK.initialize("NDkzanZkaTllZGJzcg==", "NTluZnZkaTU4MnZqOThhajg5ZDJhb3Z0aG4=")
     }
 
 }

@@ -7,10 +7,8 @@ import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import com.charliechristensen.voxeet.home.HomeFragment
-import com.voxeet.sdk.VoxeetSdk
-import eu.codlab.simplepromise.solve.ErrorPromise
-import eu.codlab.simplepromise.solve.PromiseExec
-import eu.codlab.simplepromise.solve.Solver
+import com.voxeet.VoxeetSDK
+import com.voxeet.promise.solve.PromiseExec
 
 
 class MainActivity : AppCompatActivity(R.layout.activity_main) {
@@ -48,34 +46,22 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
     }
 
     override fun onDestroy() {
-        VoxeetSdk.conference()?.leave()
-            ?.then(object : PromiseExec<Boolean, Any>() {
-                override fun onCall(result: Boolean?, solver: Solver<Any>) {
-                    Log.d("ChatFragment", "Conference Left - Result-$result")
-                }
-            })
-            ?.error(object : ErrorPromise() {
-                override fun onError(error: Throwable) {
-                    Log.d(
-                        "ChatFragment",
-                        "Error leaving conference - Error - ${error.message}"
-                    )
-                }
-            })
-        VoxeetSdk.session()?.close()
-            ?.then(object : PromiseExec<Boolean, Any>() {
-                override fun onCall(result: Boolean?, solver: Solver<Any>) {
-                    Log.d("ChatFragment", "Session Closed - Result-$result")
-                }
-            })
-            ?.error(object : ErrorPromise() {
-                override fun onError(error: Throwable) {
-                    Log.d(
-                        "ChatFragment",
-                        "Error ending session - Error - ${error.message}"
-                    )
-                }
-            })
+        VoxeetSDK.conference().leave()
+            .then(PromiseExec<Boolean, Any> { result, solver -> Log.d("ChatFragment", "Conference Left - Result-$result") })
+            ?.error { error ->
+                Log.d(
+                    "ChatFragment",
+                    "Error leaving conference - Error - ${error.message}"
+                )
+            }
+        VoxeetSDK.session().close()
+            .then(PromiseExec<Boolean, Any> { result, solver -> Log.d("ChatFragment", "Session Closed - Result-$result") })
+            ?.error { error ->
+                Log.d(
+                    "ChatFragment",
+                    "Error ending session - Error - ${error.message}"
+                )
+            }
         super.onDestroy()
     }
 

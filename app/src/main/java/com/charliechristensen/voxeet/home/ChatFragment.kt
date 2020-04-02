@@ -6,61 +6,50 @@ import android.view.View
 import androidx.core.os.bundleOf
 import androidx.fragment.app.Fragment
 import com.charliechristensen.voxeet.R
+import com.voxeet.VoxeetSDK
 import com.voxeet.android.media.MediaStreamType
-import com.voxeet.sdk.VoxeetSdk
+import com.voxeet.promise.Promise
+import com.voxeet.promise.solve.PromiseExec
 import com.voxeet.sdk.events.v2.StreamAddedEvent
 import com.voxeet.sdk.events.v2.StreamRemovedEvent
 import com.voxeet.sdk.events.v2.StreamUpdatedEvent
-import com.voxeet.sdk.json.UserInfo
+import com.voxeet.sdk.json.ParticipantInfo
+import com.voxeet.sdk.models.Conference
 import com.voxeet.sdk.models.v1.CreateConferenceResult
-import eu.codlab.simplepromise.solve.ErrorPromise
-import eu.codlab.simplepromise.solve.PromiseExec
-import eu.codlab.simplepromise.solve.Solver
 import kotlinx.android.synthetic.main.fragment_chat.*
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
-import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.properties.Delegates
 
 class ChatFragment : Fragment(R.layout.fragment_chat) {
 
-    private var isShowingVideo: Boolean by Delegates.observable(false) { property, oldValue, newValue ->
-        if (newValue) {
-            startVideo()
-        } else {
-            stopVideo()
-        }
-    }
-
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        VoxeetSdk.instance()?.register(this)
+        VoxeetSDK.instance().register(this)
         val name = requireArguments().getString(KEY_NAME) ?: "Chris"
         val conferenceName = requireArguments().getString(KEY_CONFERENCE_NAME) ?: "DefaultConferenceName"
         toolbar.title = conferenceName
         startSession(name, conferenceName)
         toggleVideoButton.setOnClickListener {
-            isShowingVideo = !isShowingVideo
+            val ownVideoStarted = VoxeetSDK.conference().currentConference?.isOwnVideoStarted ?: return@setOnClickListener
+            if (ownVideoStarted) {
+                stopVideo()
+            } else {
+                startVideo()
+            }
         }
     }
 
     override fun onDestroy() {
         stopVideo()
-        VoxeetSdk.conference()?.leave()
-            ?.then(object : PromiseExec<Boolean, Any>() {
-                override fun onCall(result: Boolean?, solver: Solver<Any>) {
-                    Log.d("ChatFragment", "Conference Left - Result-$result")
-                }
-            })
-            ?.error(object : ErrorPromise() {
-                override fun onError(error: Throwable) {
-                    Log.d(
-                        "ChatFragment",
-                        "Error leaving conference - Error - ${error.message}"
-                    )
-                }
-            })
-        VoxeetSdk.instance()?.unregister(this)
+        VoxeetSDK.conference().leave()
+            .then(PromiseExec<Boolean, Any> { result, solver -> Log.d("ChatFragment", "Conference Left - Result-$result") })
+            ?.error { error ->
+                Log.d(
+                    "ChatFragment",
+                    "Error leaving conference - Error - ${error.message}"
+                )
+            }
+        VoxeetSDK.instance().unregister(this)
         super.onDestroy()
     }
 
@@ -68,81 +57,59 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         if (name.isBlank() || conferenceName.isBlank()) {
             return
         }
-        val participantInfo = UserInfo(name, "", "")
-        VoxeetSdk.session()
-            ?.open(participantInfo)
-            ?.then(object : PromiseExec<Boolean, CreateConferenceResult>() {
-                override fun onCall(result: Boolean?, solver: Solver<CreateConferenceResult>) {
-                    solver.resolve(VoxeetSdk.conference()!!.create(conferenceName))
-                }
+        val participantInfo = ParticipantInfo(name, "", "")
+        VoxeetSDK.session()
+            .open(participantInfo)
+            .then(PromiseExec<Boolean, CreateConferenceResult> { result, solver -> solver.resolve(VoxeetSDK.conference().create(conferenceName)) })
+            ?.then(PromiseExec<CreateConferenceResult, Conference> { result, solver ->
+                Log.d("ChatFragment", "Conference Connected - Result-$result")
+                val join: Promise<Conference> = VoxeetSDK.conference().join(result!!.conferenceId)
+                solver.resolve(join)
             })
-            ?.then(object : PromiseExec<CreateConferenceResult, Boolean>() {
-                override fun onCall(result: CreateConferenceResult?, solver: Solver<Boolean>) {
-                    Log.d("ChatFragment", "Conference Connected - Result-$result")
-                    val join = VoxeetSdk.conference()!!.join(result!!.conferenceId)
-                    solver.resolve(join)
-                }
+            ?.then(PromiseExec<Conference, Boolean> { result, solver ->
+                Log.d("ChatFragment", "Conference Joined - Result-$result")
+                startVideo()
+                toggleVideoButton.visibility = View.VISIBLE
             })
-            ?.then(object : PromiseExec<Boolean, Boolean>() {
-                override fun onCall(result: Boolean?, solver: Solver<Boolean>) {
-                    Log.d("ChatFragment", "Conference Joined - Result-$result")
-                    isShowingVideo = true
-                    toggleVideoButton.visibility = View.VISIBLE
-                }
-            })
-            ?.error(object : ErrorPromise() {
-                override fun onError(error: Throwable) {
-                    Log.d(
-                        "ChatFragment",
-                        "Error creating and joining conference - Error - ${error.message}"
-                    )
-                }
-            })
+            ?.error { error ->
+                Log.d(
+                    "ChatFragment",
+                    "Error creating and joining conference - Error - ${error.message}"
+                )
+            }
     }
 
     private fun startVideo() {
-        VoxeetSdk.conference()?.startVideo()
-            ?.then(object : PromiseExec<Boolean, Boolean>() {
-                override fun onCall(result: Boolean?, solver: Solver<Boolean>) {
-                    Log.d("ChatFragment", "Video Started - Result-$result")
-                }
-            })
-            ?.error(object : ErrorPromise() {
-                override fun onError(error: Throwable) {
-                    Log.d(
-                        "ChatFragment",
-                        "Error starting video - Error - ${error.message}"
-                    )
-                }
-            })
+        VoxeetSDK.conference().startVideo()
+            .then(PromiseExec<Boolean, Boolean> { result, solver -> Log.d("ChatFragment", "Video Started - Result-$result") })
+            ?.error { error ->
+                Log.d(
+                    "ChatFragment",
+                    "Error starting video - Error - ${error.message}"
+                )
+            }
     }
 
     private fun stopVideo() {
-        VoxeetSdk.conference()?.stopVideo()
-            ?.then(object : PromiseExec<Boolean, Boolean>() {
-                override fun onCall(result: Boolean?, solver: Solver<Boolean>) {
-                    Log.d("ChatFragment", "Video Stopped - Result-$result")
-                }
-            })
-            ?.error(object : ErrorPromise() {
-                override fun onError(error: Throwable) {
-                    Log.d(
-                        "ChatFragment",
-                        "Error stopping video - Error - ${error.message}"
-                    )
-                }
-            })
+        VoxeetSDK.conference().stopVideo()
+            .then(PromiseExec<Boolean, Boolean> { result, solver -> Log.d("ChatFragment", "Video Stopped - Result-$result") })
+            ?.error { error ->
+                Log.d(
+                    "ChatFragment",
+                    "Error stopping video - Error - ${error.message}"
+                )
+            }
     }
 
     private fun updateStreams() {
-        VoxeetSdk.conference()?.users
-            ?.forEach { user ->
+        VoxeetSDK.conference().participants
+            .forEach { user ->
                 val userId = user.id
-                val isLocal = user.id == VoxeetSdk.session()?.userId
+                val isLocal = user.id == VoxeetSDK.session().participantId
                 val stream = user.streamsHandler().getFirst(MediaStreamType.Camera)
                 val video = if (isLocal) playerVideoView else subjectVideoView
                 val name = if (isLocal) playerNameTextView else subjectNameTextView
-                name.text = user.userInfo?.name ?: ""
+                name.text = user.info?.name ?: ""
                 if (userId != null && stream != null && stream.videoTracks().isNotEmpty()) {
                     video.visibility = View.VISIBLE
                     name.visibility = View.VISIBLE
